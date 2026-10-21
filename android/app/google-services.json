@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1060419264803",
+    "project_id": "kodekoalesce",
+    "storage_bucket": "kodekoalesce.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1060419264803:android:26798a6d0e2d4a4f3fec96",
+        "android_client_info": {
+          "package_name": "com.kodekoalesce.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBg7e2NBgVAk5XiKS6O9sbiGyx97WkpYm8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

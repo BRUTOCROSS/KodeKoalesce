@@ -1,0 +1,664 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId} {
+      allow read, write: if request.auth != null
+                         && request.auth.uid == userId;
+
+      match /following/{followedUserId} {
+        // Profiles and their following lists are public to signed-in members.
+        // This also permits collectionGroup('following') queries for followers.
+        allow read: if request.auth != null;
+        allow create: if request.auth != null
+                      && request.auth.uid == userId
+                      && followedUserId != request.auth.uid
+                      && request.resource.data.userId == followedUserId;
+        allow delete: if request.auth != null
+                      && request.auth.uid == userId;
+      }
+
+      match /savedProjects/{projectId} {
+        allow read, delete: if request.auth != null
+                            && request.auth.uid == userId;
+        allow create: if request.auth != null
+                      && request.auth.uid == userId
+                      && exists(/databases/$(database)/documents/projects/$(projectId))
+                      && request.resource.data.title is string
+                      && request.resource.data.description is string
+                      && request.resource.data.ownerId is string;
+      }
+
+      match /savedPosts/{postId} {
+        allow read, delete: if request.auth != null
+                            && request.auth.uid == userId;
+        allow create: if request.auth != null
+                      && request.auth.uid == userId
+                      && request.resource.data.keys().hasAll(['postId', 'authorId', 'authorName', 'authorHandle', 'initials', 'text', 'topic', 'time', 'replyCount', 'viewCount', 'savedAt'])
+                      && request.resource.data.keys().hasOnly(['postId', 'authorId', 'authorName', 'authorHandle', 'initials', 'text', 'topic', 'time', 'replyCount', 'viewCount', 'savedAt'])
+                      && request.resource.data.postId == postId
+                      && exists(/databases/$(database)/documents/posts/$(postId))
+                      && request.resource.data.authorId is string
+                      && request.resource.data.authorName is string
+                      && request.resource.data.authorHandle is string
+                      && request.resource.data.initials is string
+                      && request.resource.data.text is string
+                      && request.resource.data.topic is string
+                      && request.resource.data.time is string
+                      && request.resource.data.replyCount is int
+                      && request.resource.data.viewCount is int
+                      && request.resource.data.savedAt is timestamp;
+      }
+
+      match /notifications/{notificationId} {
+        allow read, delete: if request.auth != null
+                            && request.auth.uid == userId;
+
+        function actorProfileMatches() {
+          let profilePath = /databases/$(database)/documents/publicProfiles/$(request.auth.uid);
+          return exists(profilePath)
+                 && get(profilePath).data.displayName == request.resource.data.actorName
+                 && get(profilePath).data.handle == request.resource.data.actorHandle;
+        }
+
+        allow create: if request.auth != null
+                      && (
+                        (request.resource.data.keys().hasAll(['kind', 'projectId', 'projectTitle', 'projectOwnerId', 'proposalId', 'path', 'proposalStatus', 'createdAt', 'read'])
+                         && request.resource.data.keys().hasOnly(['kind', 'projectId', 'projectTitle', 'projectOwnerId', 'proposalId', 'path', 'proposalStatus', 'createdAt', 'read'])
+                         && request.resource.data.kind == 'code_change_review'
+                         && request.resource.data.projectId is string
+                         && request.resource.data.projectTitle is string
+                         && request.resource.data.projectTitle.size() > 0
+                         && request.resource.data.projectTitle.size() <= 80
+                         && request.resource.data.projectOwnerId == request.auth.uid
+                         && request.resource.data.proposalId == notificationId
+                         && request.resource.data.path is string
+                         && request.resource.data.path.size() <= 255
+                         && request.resource.data.proposalStatus in ['approved', 'rejected']
+                         && request.resource.data.createdAt is timestamp
+                         && request.resource.data.read == false
+                         && existsAfter(/databases/$(database)/documents/projects/$(request.resource.data.projectId)/fileChangeProposals/$(notificationId))
+                         && getAfter(/databases/$(database)/documents/projects/$(request.resource.data.projectId)/fileChangeProposals/$(notificationId)).data.submitterId == userId
+                         && getAfter(/databases/$(database)/documents/projects/$(request.resource.data.projectId)/fileChangeProposals/$(notificationId)).data.projectOwnerId == request.auth.uid
+                         && getAfter(/databases/$(database)/documents/projects/$(request.resource.data.projectId)/fileChangeProposals/$(notificationId)).data.status == request.resource.data.proposalStatus
+                         && getAfter(/databases/$(database)/documents/projects/$(request.resource.data.projectId)/fileChangeProposals/$(notificationId)).data.reviewedBy == request.auth.uid
+                         && get(/databases/$(database)/documents/projects/$(request.resource.data.projectId)).data.ownerId == request.auth.uid)
+                        ||
+                        (request.resource.data.keys().hasAll(['kind', 'actorId', 'actorName', 'actorHandle', 'createdAt', 'read'])
+                         && request.resource.data.keys().hasOnly(['kind', 'actorId', 'actorName', 'actorHandle', 'createdAt', 'read'])
+                         && request.resource.data.kind == 'social_follow'
+                         && request.resource.data.actorId == request.auth.uid
+                         && request.resource.data.actorId != userId
+                         && request.resource.data.actorName is string
+                         && request.resource.data.actorHandle is string
+                         && actorProfileMatches()
+                         && request.resource.data.createdAt is timestamp
+                         && request.resource.data.read == false
+                         && exists(/databases/$(database)/documents/users/$(request.auth.uid)/following/$(userId)))
+                        ||
+                        (request.resource.data.keys().hasAll(['kind', 'actorId', 'actorName', 'actorHandle', 'postId', 'commentId', 'createdAt', 'read'])
+                         && request.resource.data.keys().hasOnly(['kind', 'actorId', 'actorName', 'actorHandle', 'postId', 'commentId', 'createdAt', 'read'])
+                         && request.resource.data.kind == 'post_reply'
+                         && request.resource.data.actorId == request.auth.uid
+                         && request.resource.data.actorId != userId
+                         && request.resource.data.actorName is string
+                         && request.resource.data.actorHandle is string
+                         && actorProfileMatches()
+                         && request.resource.data.postId is string
+                         && request.resource.data.commentId is string
+                         && get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data.authorId == userId
+                         && get(/databases/$(database)/documents/posts/$(request.resource.data.postId)/comments/$(request.resource.data.commentId)).data.authorId == request.auth.uid
+                         && request.resource.data.createdAt is timestamp
+                         && request.resource.data.read == false)
+                      );
+
+        allow update: if request.auth != null
+                      && request.auth.uid == userId
+                      && request.resource.data.read == true
+                      && request.resource.data.diff(resource.data).affectedKeys()
+                          .hasOnly(['read']);
+      }
+    }
+
+    // Public directory fields only. Private account data stays in /users.
+    match /publicProfiles/{profileId} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null
+                            && request.auth.uid == profileId
+                            && request.resource.data.keys().hasAll(['uid', 'displayName', 'handle', 'bio', 'searchPrefixes', 'updatedAt'])
+                            && request.resource.data.keys().hasOnly(['uid', 'displayName', 'handle', 'bio', 'searchPrefixes', 'updatedAt', 'headline', 'location', 'skills', 'interests', 'githubUrl', 'websiteUrl'])
+                            && request.resource.data.uid == profileId
+                            && request.resource.data.displayName is string
+                            && request.resource.data.displayName.size() > 0
+                            && request.resource.data.displayName.size() <= 80
+                            && request.resource.data.handle is string
+                            && request.resource.data.handle.size() <= 41
+                            && request.resource.data.bio is string
+                            && request.resource.data.bio.size() <= 250
+                            && request.resource.data.searchPrefixes is list
+                            && request.resource.data.searchPrefixes.size() <= 100
+                            && (!('headline' in request.resource.data) || (request.resource.data.headline is string && request.resource.data.headline.size() <= 100))
+                            && (!('location' in request.resource.data) || (request.resource.data.location is string && request.resource.data.location.size() <= 80))
+                            && (!('skills' in request.resource.data) || (request.resource.data.skills is list && request.resource.data.skills.size() <= 8))
+                            && (!('interests' in request.resource.data) || (request.resource.data.interests is list && request.resource.data.interests.size() <= 8))
+                            && (!('githubUrl' in request.resource.data) || (request.resource.data.githubUrl is string && request.resource.data.githubUrl.size() <= 200))
+                            && (!('websiteUrl' in request.resource.data) || (request.resource.data.websiteUrl is string && request.resource.data.websiteUrl.size() <= 200))
+                            && request.resource.data.updatedAt is timestamp;
+      allow delete: if request.auth != null
+                    && request.auth.uid == profileId;
+    }
+
+    // Collection group queries need an explicit recursive-wildcard rule.
+    // This allows signed-in users to query the following collections to build
+    // profile follower counts and follower lists.
+    match /{path=**}/following/{followedUserId} {
+      allow read: if request.auth != null;
+    }
+
+    match /projects/{projectId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && request.resource.data.ownerId == request.auth.uid
+                    && request.resource.data.title is string
+                    && request.resource.data.title.size() > 0
+                    && request.resource.data.title.size() <= 80
+                    && request.resource.data.description is string
+                    && request.resource.data.description.size() > 0
+                    && request.resource.data.description.size() <= 500
+                    && request.resource.data.tags is list
+                    && request.resource.data.tags.size() <= 8
+                    && request.resource.data.status is string;
+      allow update: if request.auth != null
+                    && resource.data.ownerId == request.auth.uid
+                    && request.resource.data.ownerId == resource.data.ownerId;
+      allow delete: if request.auth != null
+                    && resource.data.ownerId == request.auth.uid;
+
+      match /contributionRequests/{requesterId} {
+        function projectExists() {
+          return exists(/databases/$(database)/documents/projects/$(projectId));
+        }
+
+        function isProjectOwner() {
+          return request.auth != null
+                 && projectExists()
+                 && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId == request.auth.uid;
+        }
+
+        allow read: if request.auth != null
+                    && (request.auth.uid == requesterId
+                        || isProjectOwner()
+                        || resource.data.projectOwnerId == request.auth.uid);
+
+        allow create: if request.auth != null
+                      && projectExists()
+                      && requesterId == request.auth.uid
+                      && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId != request.auth.uid
+                      && request.resource.data.keys().hasAll(['requesterId', 'requesterName', 'message', 'status', 'requestedAt', 'projectId', 'projectTitle', 'projectOwnerId'])
+                      && request.resource.data.keys().hasOnly(['requesterId', 'requesterName', 'message', 'status', 'requestedAt', 'projectId', 'projectTitle', 'projectOwnerId'])
+                      && request.resource.data.requesterId == request.auth.uid
+                      && request.resource.data.projectId == projectId
+                      && request.resource.data.projectOwnerId == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId
+                      && request.resource.data.projectTitle is string
+                      && request.resource.data.projectTitle.size() > 0
+                      && request.resource.data.projectTitle.size() <= 80
+                      && request.resource.data.requesterName is string
+                      && request.resource.data.requesterName.size() > 0
+                      && request.resource.data.requesterName.size() <= 80
+                      && request.resource.data.message is string
+                      && request.resource.data.message.size() <= 300
+                      && request.resource.data.status == 'pending'
+                      && request.resource.data.requestedAt is timestamp;
+
+        allow update: if request.auth != null
+                      && request.resource.data.keys().hasOnly(['requesterId', 'requesterName', 'message', 'status', 'requestedAt', 'reviewedBy', 'reviewedAt', 'projectId', 'projectTitle', 'projectOwnerId'])
+                      && request.resource.data.requesterId == resource.data.requesterId
+                      && request.resource.data.requesterName == resource.data.requesterName
+                      && (!('projectId' in resource.data)
+                          || request.resource.data.projectId == resource.data.projectId)
+                      && (!('projectTitle' in resource.data)
+                          || request.resource.data.projectTitle == resource.data.projectTitle)
+                      && (!('projectOwnerId' in resource.data)
+                          || request.resource.data.projectOwnerId == resource.data.projectOwnerId)
+                      && (!('projectId' in request.resource.data)
+                          || request.resource.data.projectId == projectId)
+                      && (!('projectOwnerId' in request.resource.data)
+                          || request.resource.data.projectOwnerId == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId)
+                      && (!('projectTitle' in request.resource.data)
+                          || (request.resource.data.projectTitle is string
+                              && request.resource.data.projectTitle.size() > 0
+                              && request.resource.data.projectTitle.size() <= 80))
+                      && request.resource.data.message is string
+                      && request.resource.data.message.size() <= 300
+                      && request.resource.data.requestedAt is timestamp
+                      && ((isProjectOwner()
+                           && resource.data.status in ['pending', 'accepted']
+                           && request.resource.data.status in ['accepted', 'declined']
+                           && request.resource.data.reviewedBy == request.auth.uid
+                           && request.resource.data.reviewedAt is timestamp
+                           && request.resource.data.diff(resource.data).affectedKeys()
+                               .hasOnly(['status', 'reviewedBy', 'reviewedAt']))
+                          || (request.auth.uid == requesterId
+                              && resource.data.status == 'declined'
+                              && request.resource.data.status == 'pending'
+                              && request.resource.data.diff(resource.data).affectedKeys()
+                                  .hasOnly(['status', 'message', 'requestedAt', 'reviewedBy', 'reviewedAt', 'projectId', 'projectTitle', 'projectOwnerId'])));
+
+        allow delete: if request.auth != null
+                      && ((request.auth.uid == requesterId
+                           && resource.data.status in ['pending', 'declined'])
+                          || isProjectOwner());
+      }
+
+      match /suggestions/{suggestionId} {
+        function isProjectOwner() {
+          return request.auth != null
+                 && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId == request.auth.uid;
+        }
+
+        allow read: if request.auth != null
+                    && (isProjectOwner()
+                        || resource.data.authorId == request.auth.uid
+                        || resource.data.projectOwnerId == request.auth.uid);
+
+        allow create: if request.auth != null
+                      && request.resource.data.keys().hasAll(['authorId', 'authorName', 'scope', 'targetPath', 'message', 'status', 'createdAt', 'projectId', 'projectTitle', 'projectOwnerId'])
+                      && request.resource.data.keys().hasOnly(['authorId', 'authorName', 'scope', 'targetPath', 'message', 'status', 'createdAt', 'projectId', 'projectTitle', 'projectOwnerId'])
+                      && request.resource.data.authorId == request.auth.uid
+                      && request.resource.data.projectId == projectId
+                      && request.resource.data.projectOwnerId == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId
+                      && request.resource.data.projectTitle is string
+                      && request.resource.data.projectTitle.size() > 0
+                      && request.resource.data.projectTitle.size() <= 80
+                      && request.resource.data.authorName is string
+                      && request.resource.data.authorName.size() > 0
+                      && request.resource.data.authorName.size() <= 80
+                      && request.resource.data.scope in ['project', 'file', 'folder']
+                      && request.resource.data.targetPath is string
+                      && request.resource.data.targetPath.size() <= 255
+                      && ((request.resource.data.scope == 'project'
+                           && request.resource.data.targetPath == '')
+                          || (request.resource.data.scope in ['file', 'folder']
+                              && request.resource.data.targetPath.size() > 0))
+                      && request.resource.data.message is string
+                      && request.resource.data.message.size() > 0
+                      && request.resource.data.message.size() <= 1000
+                      && request.resource.data.status == 'open'
+                      && request.resource.data.createdAt is timestamp;
+
+        allow update: if isProjectOwner()
+                      && request.resource.data.status in ['open', 'addressed']
+                      && request.resource.data.reviewedBy == request.auth.uid
+                      && request.resource.data.reviewedAt is timestamp
+                      && request.resource.data.diff(resource.data).affectedKeys()
+                          .hasOnly(['status', 'reviewedBy', 'reviewedAt']);
+
+        allow delete: if request.auth != null
+                      && (isProjectOwner()
+                          || (resource.data.authorId == request.auth.uid
+                              && resource.data.status == 'open'));
+      }
+
+      match /files/{fileId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null
+                      && getAfter(/databases/$(database)/documents/projects/$(projectId)).data.ownerId == request.auth.uid
+                      && request.resource.data.path is string
+                      && request.resource.data.path.size() > 0
+                      && request.resource.data.path.size() <= 255
+                      && request.resource.data.content is string
+                      && request.resource.data.content.size() <= 100000
+                      && request.resource.data.createdBy == request.auth.uid
+                      && request.resource.data.updatedBy == request.auth.uid;
+      allow update: if request.auth != null
+                    && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId == request.auth.uid
+                    && request.resource.data.path is string
+                    && request.resource.data.path.size() > 0
+                    && request.resource.data.path.size() <= 255
+                    && request.resource.data.content is string
+                      && request.resource.data.content.size() <= 100000
+                      && request.resource.data.createdBy == resource.data.createdBy
+                      && request.resource.data.updatedBy == request.auth.uid;
+      allow delete: if request.auth != null
+                    && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId == request.auth.uid;
+      }
+
+      match /fileChangeProposals/{proposalId} {
+        function isProjectOwner() {
+          return request.auth != null
+                 && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId == request.auth.uid;
+        }
+
+        function isAcceptedContributor() {
+          return request.auth != null
+                 && exists(/databases/$(database)/documents/projects/$(projectId)/contributionRequests/$(request.auth.uid))
+                 && get(/databases/$(database)/documents/projects/$(projectId)/contributionRequests/$(request.auth.uid)).data.status == 'accepted';
+        }
+
+        allow read: if request.auth != null
+                    && (isProjectOwner()
+                        || resource.data.submitterId == request.auth.uid);
+
+        allow create: if isAcceptedContributor()
+                      && request.resource.data.keys().hasAll(['submitterId', 'submitterName', 'projectOwnerId', 'projectTitle', 'operation', 'fileId', 'path', 'content', 'baseContent', 'status', 'createdAt'])
+                      && request.resource.data.keys().hasOnly(['submitterId', 'submitterName', 'projectOwnerId', 'projectTitle', 'operation', 'fileId', 'path', 'content', 'baseContent', 'status', 'createdAt'])
+                      && request.resource.data.submitterId == request.auth.uid
+                      && request.resource.data.projectOwnerId == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId
+                      && request.resource.data.projectOwnerId != request.auth.uid
+                      && request.resource.data.projectTitle is string
+                      && request.resource.data.projectTitle.size() > 0
+                      && request.resource.data.projectTitle.size() <= 80
+                      && request.resource.data.submitterName is string
+                      && request.resource.data.submitterName.size() > 0
+                      && request.resource.data.submitterName.size() <= 80
+                      && request.resource.data.operation in ['create', 'update']
+                      && request.resource.data.fileId is string
+                      && ((request.resource.data.operation == 'create'
+                           && request.resource.data.fileId == ''
+                           && request.resource.data.baseContent == '')
+                          || (request.resource.data.operation == 'update'
+                              && request.resource.data.fileId.size() > 0
+                              && exists(/databases/$(database)/documents/projects/$(projectId)/files/$(request.resource.data.fileId))
+                              && get(/databases/$(database)/documents/projects/$(projectId)/files/$(request.resource.data.fileId)).data.path == request.resource.data.path
+                              && request.resource.data.baseContent is string
+                              && request.resource.data.baseContent.size() <= 100000))
+                      && request.resource.data.path is string
+                      && request.resource.data.path.size() > 0
+                      && request.resource.data.path.size() <= 255
+                      && request.resource.data.content is string
+                      && request.resource.data.content.size() <= 100000
+                      && request.resource.data.status == 'pending'
+                      && request.resource.data.createdAt is timestamp;
+
+        allow update: if isProjectOwner()
+                      && resource.data.status == 'pending'
+                      && request.resource.data.status in ['approved', 'rejected']
+                      && request.resource.data.reviewedBy == request.auth.uid
+                      && request.resource.data.reviewedAt is timestamp
+                      && request.resource.data.diff(resource.data).affectedKeys()
+                          .hasOnly(['status', 'reviewedBy', 'reviewedAt']);
+      }
+    }
+
+    match /{path=**}/contributionRequests/{requesterId} {
+      allow read: if request.auth != null
+                  && resource.data.projectOwnerId == request.auth.uid;
+    }
+
+    match /{path=**}/suggestions/{suggestionId} {
+      allow read: if request.auth != null
+                  && resource.data.projectOwnerId == request.auth.uid;
+    }
+
+    match /{path=**}/fileChangeProposals/{proposalId} {
+      allow read: if request.auth != null
+                  && resource.data.projectOwnerId == request.auth.uid;
+    }
+
+    match /rooms/{roomId} {
+      function isRoomHost() {
+        return request.auth != null
+               && resource.data.hostId == request.auth.uid;
+      }
+
+      function isRoomParticipant() {
+        return request.auth != null
+               && exists(/databases/$(database)/documents/rooms/$(roomId)/participants/$(request.auth.uid));
+      }
+
+      allow read: if request.auth != null
+                  && (resource.data.status == 'open'
+                      || isRoomHost()
+                      || isRoomParticipant());
+
+      allow create: if request.auth != null
+                    && request.resource.data.keys().hasAll([
+                      'title', 'description', 'hostId', 'hostName', 'status', 'createdAt'
+                    ])
+                    && request.resource.data.keys().hasOnly([
+                      'title', 'description', 'hostId', 'hostName', 'status', 'createdAt'
+                    ])
+                    && request.resource.data.hostId == request.auth.uid
+                    && request.resource.data.title is string
+                    && request.resource.data.title.size() >= 3
+                    && request.resource.data.title.size() <= 80
+                    && request.resource.data.description is string
+                    && request.resource.data.description.size() <= 240
+                    && request.resource.data.hostName is string
+                    && request.resource.data.hostName.size() > 0
+                    && request.resource.data.hostName.size() <= 80
+                    && request.resource.data.status == 'open'
+                    && request.resource.data.createdAt is timestamp;
+
+      allow update: if isRoomHost()
+                    && resource.data.status == 'open'
+                    && request.resource.data.status == 'ended'
+                    && request.resource.data.endedAt is timestamp
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                        .hasOnly(['status', 'endedAt']);
+      allow delete: if false;
+
+      match /joinRequests/{requesterId} {
+        function roomIsOpen() {
+          let roomPath = /databases/$(database)/documents/rooms/$(roomId);
+          return exists(roomPath) && get(roomPath).data.status == 'open';
+        }
+
+        function requestHost() {
+          let roomPath = /databases/$(database)/documents/rooms/$(roomId);
+          return request.auth != null
+                 && exists(roomPath)
+                 && get(roomPath).data.hostId == request.auth.uid;
+        }
+
+        function participantDoesNotExist() {
+          return !exists(/databases/$(database)/documents/rooms/$(roomId)/participants/$(requesterId));
+        }
+
+        allow read: if request.auth != null
+                    && (request.auth.uid == requesterId || requestHost());
+
+        allow create: if request.auth != null
+                      && request.auth.uid == requesterId
+                      && roomIsOpen()
+                      && participantDoesNotExist()
+                      && request.resource.data.keys().hasAll(['uid', 'displayName', 'status', 'requestedAt'])
+                      && request.resource.data.keys().hasOnly(['uid', 'displayName', 'status', 'requestedAt'])
+                      && request.resource.data.uid == request.auth.uid
+                      && request.resource.data.displayName is string
+                      && request.resource.data.displayName.size() > 0
+                      && request.resource.data.displayName.size() <= 80
+                      && request.resource.data.status == 'pending'
+                      && request.resource.data.requestedAt is timestamp;
+
+        allow update: if request.auth != null
+                      && ((requestHost()
+                           && resource.data.status == 'pending'
+                           && request.resource.data.status in ['approved', 'declined']
+                           && request.resource.data.reviewedBy == request.auth.uid
+                           && request.resource.data.reviewedAt is timestamp
+                           && request.resource.data.diff(resource.data).affectedKeys()
+                               .hasOnly(['status', 'reviewedBy', 'reviewedAt']))
+                          || (request.auth.uid == requesterId
+                              && resource.data.status in ['declined', 'approved']
+                              && request.resource.data.status == 'pending'
+                              && request.resource.data.requestedAt is timestamp
+                              && participantDoesNotExist()
+                              && request.resource.data.diff(resource.data).affectedKeys()
+                                  .hasOnly(['status', 'requestedAt'])));
+
+        allow delete: if request.auth != null
+                      && (request.auth.uid == requesterId
+                          || requestHost());
+      }
+
+      match /reactions/{userId} {
+        function reactionHost() {
+          let roomPath = /databases/$(database)/documents/rooms/$(roomId);
+          return request.auth != null
+                 && exists(roomPath)
+                 && get(roomPath).data.hostId == request.auth.uid;
+        }
+
+        function validReaction() {
+          return request.resource.data.keys().hasAll(['uid', 'displayName', 'emoji', 'eventId', 'createdAt'])
+                 && request.resource.data.keys().hasOnly(['uid', 'displayName', 'emoji', 'eventId', 'createdAt'])
+                 && request.resource.data.uid == request.auth.uid
+                 && request.resource.data.displayName is string
+                 && request.resource.data.displayName.size() <= 80
+                 && request.resource.data.eventId is string
+                 && request.resource.data.eventId.size() <= 24
+                 && request.resource.data.emoji in ['👏', '❤️', '😂', '🔥', '👍', '🎉'];
+        }
+
+        allow read: if request.auth != null
+                    && (reactionHost() || isRoomParticipant());
+        allow create, update: if request.auth != null
+                              && request.auth.uid == userId
+                              && isRoomParticipant()
+                              && validReaction()
+                              && request.resource.data.createdAt is timestamp;
+        allow delete: if request.auth != null
+                      && (request.auth.uid == userId || reactionHost());
+      }
+
+      match /participants/{participantId} {
+        function roomIsOpen() {
+          let roomPath = /databases/$(database)/documents/rooms/$(roomId);
+          return existsAfter(roomPath)
+                 && getAfter(roomPath).data.status == 'open';
+        }
+
+        function isRoomHost() {
+          let roomPath = /databases/$(database)/documents/rooms/$(roomId);
+          return exists(roomPath)
+                 && get(roomPath).data.hostId == request.auth.uid;
+        }
+
+        function approvedJoinRequest() {
+          let requestPath = /databases/$(database)/documents/rooms/$(roomId)/joinRequests/$(participantId);
+          return exists(requestPath)
+                 && get(requestPath).data.status == 'approved';
+        }
+
+        allow read: if request.auth != null;
+        allow create: if request.auth != null
+                      && request.auth.uid == participantId
+                      && request.resource.data.keys().hasAll(['uid', 'displayName', 'joinedAt'])
+                      && request.resource.data.keys().hasOnly(['uid', 'displayName', 'joinedAt', 'mutedByHost'])
+                      && request.resource.data.uid == request.auth.uid
+                      && request.resource.data.displayName is string
+                      && request.resource.data.displayName.size() > 0
+                      && request.resource.data.displayName.size() <= 80
+                      && request.resource.data.joinedAt is timestamp
+                      && request.resource.data.mutedByHost is bool
+                      && roomIsOpen()
+                      && (isRoomHost() || approvedJoinRequest());
+        allow update: if request.auth != null
+                      && isRoomHost()
+                      && roomIsOpen()
+                      && request.resource.data.mutedByHost is bool
+                      && request.resource.data.diff(resource.data).affectedKeys()
+                          .hasOnly(['mutedByHost']);
+        allow delete: if request.auth != null
+                      && (request.auth.uid == participantId || isRoomHost());
+      }
+    }
+
+    match /posts/{postId} {
+      function isAuthorTextEdit() {
+        return request.auth != null
+               && resource.data.authorId == request.auth.uid
+               && request.resource.data.diff(resource.data).affectedKeys()
+                   .hasOnly(['text'])
+               && request.resource.data.text is string
+               && request.resource.data.text.size() > 0
+               && request.resource.data.text.size() <= 500;
+      }
+
+      function isFirstViewCountIncrement() {
+        let viewPath = /databases/$(database)/documents/posts/$(postId)/views/$(request.auth.uid);
+        let currentCount = ('viewCount' in resource.data) ? resource.data.viewCount : 0;
+        return request.auth != null
+               && request.auth.uid != resource.data.authorId
+               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['viewCount'])
+               && request.resource.data.viewCount is int
+               && request.resource.data.viewCount == currentCount + 1
+               && !exists(viewPath)
+               && existsAfter(viewPath)
+               && getAfter(viewPath).data.viewerId == request.auth.uid;
+      }
+
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && request.resource.data.authorId == request.auth.uid
+                    && request.resource.data.category == 'community'
+                    && request.resource.data.text is string
+                    && request.resource.data.text.size() > 0
+                    && request.resource.data.text.size() <= 500;
+      allow delete: if request.auth != null
+                    && resource.data.authorId == request.auth.uid;
+
+      allow update: if request.auth != null
+                    && (isFirstViewCountIncrement() || isAuthorTextEdit());
+
+      match /views/{viewerId} {
+        function postViewCountIncrements() {
+          let postPath = /databases/$(database)/documents/posts/$(postId);
+          let postData = get(postPath).data;
+          let previousCount = ('viewCount' in postData) ? postData.viewCount : 0;
+          return getAfter(postPath).data.viewCount == previousCount + 1;
+        }
+
+        allow read: if request.auth != null
+                    && request.auth.uid == viewerId;
+        allow create: if request.auth != null
+                      && request.auth.uid == viewerId
+                      && request.auth.uid != get(/databases/$(database)/documents/posts/$(postId)).data.authorId
+                      && request.resource.data.keys().hasAll(['viewerId', 'viewedAt'])
+                      && request.resource.data.keys().hasOnly(['viewerId', 'viewedAt'])
+                      && request.resource.data.viewerId == request.auth.uid
+                      && request.resource.data.viewedAt is timestamp
+                      && postViewCountIncrements();
+        allow update, delete: if false;
+      }
+
+      match /likes/{userId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null
+                      && request.auth.uid == userId
+                      && request.resource.data.userId == request.auth.uid
+                      && exists(/databases/$(database)/documents/posts/$(postId));
+        allow delete: if request.auth != null
+                      && request.auth.uid == userId;
+      }
+
+      match /comments/{commentId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null
+                      && request.resource.data.authorId == request.auth.uid
+                      && request.resource.data.text is string
+                      && request.resource.data.text.size() > 0
+                      && request.resource.data.text.size() <= 500
+                      && (!('parentId' in request.resource.data)
+                          || request.resource.data.parentId == null
+                          || (request.resource.data.parentId is string
+                              && exists(/databases/$(database)/documents/posts/$(postId)/comments/$(request.resource.data.parentId))))
+                      && exists(/databases/$(database)/documents/posts/$(postId));
+        allow delete: if request.auth != null
+                      && resource.data.authorId == request.auth.uid;
+      }
+
+      match /reports/{reporterId} {
+        allow create, update: if request.auth != null
+                              && request.auth.uid == reporterId
+                              && request.auth.uid != get(/databases/$(database)/documents/posts/$(postId)).data.authorId
+                              && request.resource.data.keys().hasAll(['reporterId', 'reason', 'createdAt'])
+                              && request.resource.data.keys().hasOnly(['reporterId', 'reason', 'createdAt'])
+                              && request.resource.data.reporterId == request.auth.uid
+                              && request.resource.data.reason in ['spam', 'harassment', 'misinformation', 'other']
+                              && request.resource.data.createdAt is timestamp;
+        allow read, delete: if false;
+      }
+    }
+  }
+}
